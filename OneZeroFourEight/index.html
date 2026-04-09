@@ -16,8 +16,9 @@
   <body>
     <main>
       <div class="header">
+        <div class="title">2048</div>
         <span class="sore">
-          <div>Your score:</div>
+          <div>Score</div>
           <div id="scoreValue">0</div>
         </span>
         <button type="button" onClick="window.location.reload();">
@@ -48,8 +49,8 @@
       </div>
 
       <dialog id="gameEndDialog" class="unselectable">
-        <p>The End of the Game!</p>
-        <button id="closeButton">Close</button>
+        <p>Game Over!</p>
+        <button id="closeButton">Try Again</button>
       </dialog>
     </main>
     <script>
@@ -62,6 +63,13 @@
         ArrowDown: API.down,
       }
 
+      const directionMap = {
+        ArrowLeft: 'left',
+        ArrowRight: 'right',
+        ArrowUp: 'up',
+        ArrowDown: 'down',
+      }
+
       window.state = {
         position: API.init(SIZE),
         score: 0,
@@ -71,10 +79,9 @@
       const scoreValue = document.getElementById('scoreValue')
 
       function changeOpacity(value) {
-        dialog.style.opacity = value // Change opacity to 50%
+        dialog.style.opacity = value
       }
 
-      /// Show the dialog after a delay
       function showDialogTransition() {
         dialog.showModal()
         changeOpacity('1')
@@ -87,23 +94,61 @@
         changeOpacity('0')
       })
 
-      function render(state) {
+      // Strip animation classes so they can be re-triggered
+      function clearAnimations() {
+        for (let i = 0; i < SIZE; i++) {
+          for (let j = 0; j < SIZE; j++) {
+            const el = document.getElementById(i.toString() + j.toString())
+            el.className = ''
+          }
+        }
+      }
+
+      function render(state, oldPosition, direction) {
+        // Clear previous animations first
+        clearAnimations()
+
+        // Force a reflow so re-adding the same animation class works
+        void document.getElementById('board').offsetHeight
+
         for (let i = 0; i < SIZE; i++) {
           for (let j = 0; j < SIZE; j++) {
             const id = i.toString() + j.toString()
-
             const el = document.getElementById(id)
             const val = state.position[i][j]
+            const oldVal = oldPosition ? oldPosition[i][j] : 0
+
             el.textContent = val === 0 ? '' : val
             el.setAttribute('data-value', val)
+
+            // Determine animation
+            if (oldPosition && direction) {
+              if (oldVal === 0 && val !== 0) {
+                // New tile appeared here
+                el.classList.add('anim-pop')
+              } else if (val !== 0 && oldVal !== 0 && val > oldVal) {
+                // Merge happened — value increased
+                el.classList.add('anim-merge')
+              } else if (val !== 0 && val !== oldVal) {
+                // Tile slid in from somewhere
+                el.classList.add('anim-slide-' + direction)
+              }
+            }
           }
         }
 
-        scoreValue.innerHTML = state.score
+        // Animate score
+        const oldScore = parseInt(scoreValue.textContent) || 0
+        scoreValue.textContent = state.score
+        if (state.score > oldScore) {
+          scoreValue.classList.remove('score-pop')
+          void scoreValue.offsetHeight
+          scoreValue.classList.add('score-pop')
+        }
       }
 
       function checkEvent(xss, fn) {
-        const [rs, _] = fn(xss) 
+        const [rs, _] = fn(xss)
         return !API.sameMatrixes(rs, xss)
       }
 
@@ -117,27 +162,24 @@
 
       function processMove(handler, eventKey) {
         if (handler) {
+          const oldPosition = copyMatrix(window.state.position)
           const [newState, points] = handler(window.state.position)
           window.state.score += points
           const sameMatrixes = API.sameMatrixes(newState, window.state.position)
-          console.log(0, sameMatrixes)
+          const direction = directionMap[eventKey]
 
           if (emptyCoordinates(newState)?.length === 0 && sameMatrixes) {
-            console.log(1)
-            // We suspect this is the end of game
             checkEndGame(eventKey, 'ArrowLeft', 'ArrowRight', API.up)
             checkEndGame(eventKey, 'ArrowUp', 'ArrowDown', API.right)
           } else if (!sameMatrixes) {
-            console.log(2)
             const res = API.addRandom(newState)
             if (!res) {
-              console.log(3)
               showDialogTransition()
             }
             window.state.position = res
           }
 
-          render(window.state)
+          render(window.state, oldPosition, direction)
         }
       }
 
@@ -145,13 +187,13 @@
       let startX, startY
 
       function handleTouchStart(e) {
-        const touch = event.touches[0]
+        const touch = e.touches[0]
         startX = touch.clientX
         startY = touch.clientY
       }
 
       function handleTouchEnd(e) {
-        const touch = event.changedTouches[0]
+        const touch = e.changedTouches[0]
         const endX = touch.clientX
         const endY = touch.clientY
         const diffX = endX - startX
@@ -189,7 +231,7 @@
         processMove(handler, event.key)
       })
 
-      render(window.state)
+      render(window.state, null, null)
     </script>
   </body>
 </html>
