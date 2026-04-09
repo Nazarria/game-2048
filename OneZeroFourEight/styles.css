@@ -98,6 +98,7 @@ button:active {
 /* Board */
 
 #board {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
@@ -109,14 +110,13 @@ button:active {
   cursor: default;
 }
 
-#board div {
+.cell {
   aspect-ratio: 1;
   border-radius: 8px;
   display: flex;
   justify-content: center;
   align-items: center;
   font-size: clamp(1.4rem, 5vw, 2.2rem);
-  transition: background-color 0.15s ease;
 }
 
 .unselectable {
@@ -126,16 +126,30 @@ button:active {
   user-select: none;
 }
 
-/* Animations — using independent translate/scale properties so they can compose */
+/* Ghost tile overlay layer */
 
-@keyframes slide-in {
-  from {
-    translate: calc(var(--dx, 0) * (100% + 12px)) calc(var(--dy, 0) * (100% + 12px));
-  }
-  to {
-    translate: 0 0;
-  }
+#tile-container {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  pointer-events: none;
+  z-index: 1;
 }
+
+.ghost-tile {
+  position: absolute;
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: clamp(1.4rem, 5vw, 2.2rem);
+  font-weight: 700;
+  transition: transform 0.1s ease-in-out;
+}
+
+/* Animations */
 
 @keyframes pop-in {
   0% { scale: 0; opacity: 0; }
@@ -148,20 +162,12 @@ button:active {
   100% { scale: 1; }
 }
 
-.anim-slide {
-  animation: slide-in 0.1s ease-in-out;
-}
-
 .anim-pop {
   animation: pop-in 0.25s ease 0.1s both;
 }
 
 .anim-merge {
-  animation: merge-bump 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.anim-slide.anim-merge {
-  animation: slide-in 0.1s ease-in-out, merge-bump 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s;
+  animation: merge-bump 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 /* Score pop animation */
@@ -176,7 +182,7 @@ button:active {
   animation: score-pop 0.3s ease-out;
 }
 
-/* Cell Colors */
+/* Cell Colors — applies to both .cell and .ghost-tile via data-value */
 
 div[data-value] {
   background-color: #3c3a32;

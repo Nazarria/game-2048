@@ -6,9 +6,10 @@ function mergeTwoElements(x1, x2) {
 }
 
 /// Merge all the array element by element. It may free some cells
-/// Returns [mergedArray, points, origins, merges]
-///   origins[i] = source index in the original array for result position i (-1 if empty)
-///   merges[i]  = true if result position i was produced by a merge
+/// Returns [mergedArray, points, origins, merges, mergeOrigins]
+///   origins[i]      = source index of primary tile for result position i (-1 if empty)
+///   merges[i]       = true if result position i was produced by a merge
+///   mergeOrigins[i] = source index of secondary tile that merged (-1 if no merge)
 function mergeArray(xs) {
   const filtered = xs.filter(n => n != 0)
   const sourceIndices = []
@@ -19,6 +20,7 @@ function mergeArray(xs) {
   const result = []
   const origins = []
   const merges = []
+  const mergeOrigins = []
   let points = 0
 
   for (let i = 0; i < filtered.length; i++) {
@@ -28,20 +30,26 @@ function mergeArray(xs) {
     if (right !== undefined && left === right) {
       result.push(left * 2)
       origins.push(sourceIndices[i])
+      mergeOrigins.push(sourceIndices[i + 1])
       merges.push(true)
       points += left * 2
       i++
     } else {
       result.push(left)
       origins.push(sourceIndices[i])
+      mergeOrigins.push(-1)
       merges.push(false)
     }
   }
 
   const padded = [...result, ...[0, 0, 0, 0]].slice(0, xs.length)
-  while (origins.length < xs.length) { origins.push(-1); merges.push(false) }
+  while (origins.length < xs.length) {
+    origins.push(-1)
+    merges.push(false)
+    mergeOrigins.push(-1)
+  }
 
-  return [padded, points, origins, merges]
+  return [padded, points, origins, merges, mergeOrigins]
 }
 
 /// Merge all the matrix
@@ -50,14 +58,16 @@ function mergeMatrix(xss) {
   let points = 0
   const allOrigins = []
   const allMerges = []
+  const allMergeOrigins = []
   for (const row of xss) {
-    const [r, p, origins, merges] = mergeArray(row)
+    const [r, p, origins, merges, mergeOrig] = mergeArray(row)
     points += p
     result.push(r)
     allOrigins.push(origins)
     allMerges.push(merges)
+    allMergeOrigins.push(mergeOrig)
   }
-  return [result, points, allOrigins, allMerges]
+  return [result, points, allOrigins, allMerges, allMergeOrigins]
 }
 
 function createMoveInfo(n) {
@@ -134,13 +144,17 @@ const API = {
   up: xss => {
     const n = xss.length
     const r = rotateMatrixRight(rotateMatrixRight(rotateMatrixRight(xss)))
-    const [rs, pt, origins, merges] = mergeMatrix(r)
+    const [rs, pt, origins, merges, mergeOrig] = mergeMatrix(r)
     const moveInfo = createMoveInfo(n)
     for (let rr = 0; rr < n; rr++) {
       for (let rc = 0; rc < n; rc++) {
         if (origins[rr][rc] >= 0) {
           const destRow = rc, destCol = n - 1 - rr
-          moveInfo[destRow][destCol] = { dx: 0, dy: origins[rr][rc] - rc, merged: merges[rr][rc] }
+          moveInfo[destRow][destCol] = {
+            dx: 0, dy: origins[rr][rc] - rc,
+            merged: merges[rr][rc],
+            mdx: 0, mdy: mergeOrig[rr][rc] >= 0 ? mergeOrig[rr][rc] - rc : 0
+          }
         }
       }
     }
@@ -151,13 +165,17 @@ const API = {
   down: xss => {
     const n = xss.length
     const r = rotateMatrixRight(xss)
-    const [rs, pt, origins, merges] = mergeMatrix(r)
+    const [rs, pt, origins, merges, mergeOrig] = mergeMatrix(r)
     const moveInfo = createMoveInfo(n)
     for (let rr = 0; rr < n; rr++) {
       for (let rc = 0; rc < n; rc++) {
         if (origins[rr][rc] >= 0) {
           const destRow = n - 1 - rc, destCol = rr
-          moveInfo[destRow][destCol] = { dx: 0, dy: rc - origins[rr][rc], merged: merges[rr][rc] }
+          moveInfo[destRow][destCol] = {
+            dx: 0, dy: rc - origins[rr][rc],
+            merged: merges[rr][rc],
+            mdx: 0, mdy: mergeOrig[rr][rc] >= 0 ? rc - mergeOrig[rr][rc] : 0
+          }
         }
       }
     }
@@ -167,12 +185,16 @@ const API = {
   /// Key Handler — tiles slide left
   left: xss => {
     const n = xss.length
-    const [rs, pt, origins, merges] = mergeMatrix(xss)
+    const [rs, pt, origins, merges, mergeOrig] = mergeMatrix(xss)
     const moveInfo = createMoveInfo(n)
     for (let r = 0; r < n; r++) {
       for (let c = 0; c < n; c++) {
         if (origins[r][c] >= 0) {
-          moveInfo[r][c] = { dx: origins[r][c] - c, dy: 0, merged: merges[r][c] }
+          moveInfo[r][c] = {
+            dx: origins[r][c] - c, dy: 0,
+            merged: merges[r][c],
+            mdx: mergeOrig[r][c] >= 0 ? mergeOrig[r][c] - c : 0, mdy: 0
+          }
         }
       }
     }
@@ -183,13 +205,17 @@ const API = {
   right: xss => {
     const n = xss.length
     const r = rotateMatrixRight(rotateMatrixRight(xss))
-    const [rs, pt, origins, merges] = mergeMatrix(r)
+    const [rs, pt, origins, merges, mergeOrig] = mergeMatrix(r)
     const moveInfo = createMoveInfo(n)
     for (let rr = 0; rr < n; rr++) {
       for (let rc = 0; rc < n; rc++) {
         if (origins[rr][rc] >= 0) {
           const destRow = n - 1 - rr, destCol = n - 1 - rc
-          moveInfo[destRow][destCol] = { dx: rc - origins[rr][rc], dy: 0, merged: merges[rr][rc] }
+          moveInfo[destRow][destCol] = {
+            dx: rc - origins[rr][rc], dy: 0,
+            merged: merges[rr][rc],
+            mdx: mergeOrig[rr][rc] >= 0 ? rc - mergeOrig[rr][rc] : 0, mdy: 0
+          }
         }
       }
     }

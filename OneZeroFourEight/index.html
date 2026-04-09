@@ -27,25 +27,27 @@
       </div>
 
       <div id="board" class="unselectable">
-        <div id="00"></div>
-        <div id="01"></div>
-        <div id="02"></div>
-        <div id="03"></div>
+        <div id="00" class="cell"></div>
+        <div id="01" class="cell"></div>
+        <div id="02" class="cell"></div>
+        <div id="03" class="cell"></div>
 
-        <div id="10"></div>
-        <div id="11"></div>
-        <div id="12"></div>
-        <div id="13"></div>
+        <div id="10" class="cell"></div>
+        <div id="11" class="cell"></div>
+        <div id="12" class="cell"></div>
+        <div id="13" class="cell"></div>
 
-        <div id="20"></div>
-        <div id="21"></div>
-        <div id="22"></div>
-        <div id="23"></div>
+        <div id="20" class="cell"></div>
+        <div id="21" class="cell"></div>
+        <div id="22" class="cell"></div>
+        <div id="23" class="cell"></div>
 
-        <div id="30"></div>
-        <div id="31"></div>
-        <div id="32"></div>
-        <div id="33"></div>
+        <div id="30" class="cell"></div>
+        <div id="31" class="cell"></div>
+        <div id="32" class="cell"></div>
+        <div id="33" class="cell"></div>
+
+        <div id="tile-container"></div>
       </div>
 
       <dialog id="gameEndDialog" class="unselectable">
@@ -55,6 +57,7 @@
     </main>
     <script>
       const SIZE = 4
+      const ANIM_DURATION = 100 // ms — matches CSS transition duration
 
       const eventMap = {
         ArrowLeft: API.left,
@@ -63,7 +66,6 @@
         ArrowDown: API.down,
       }
 
-
       window.state = {
         position: API.init(SIZE),
         score: 0,
@@ -71,6 +73,7 @@
 
       const dialog = document.querySelector('dialog')
       const scoreValue = document.getElementById('scoreValue')
+      const tileContainer = document.getElementById('tile-container')
 
       function changeOpacity(value) {
         dialog.style.opacity = value
@@ -88,55 +91,143 @@
         changeOpacity('0')
       })
 
-      // Strip animation classes so they can be re-triggered
+      // Compute pixel position for a grid cell within tile-container
+      function getCellPos(row, col) {
+        const w = tileContainer.offsetWidth
+        const gap = 12
+        const cellSize = (w - 3 * gap) / 4
+        return {
+          left: col * (cellSize + gap),
+          top: row * (cellSize + gap),
+          size: cellSize,
+        }
+      }
+
+      // Create an absolutely-positioned ghost tile
+      function createGhostTile(value, row, col) {
+        const pos = getCellPos(row, col)
+        const el = document.createElement('div')
+        el.className = 'ghost-tile'
+        el.textContent = value
+        el.setAttribute('data-value', value)
+        el.style.width = pos.size + 'px'
+        el.style.height = pos.size + 'px'
+        el.style.transform = 'translate(' + pos.left + 'px,' + pos.top + 'px)'
+        return el
+      }
+
+      function clearGhostTiles() {
+        tileContainer.innerHTML = ''
+      }
+
+      // Strip animation classes
       function clearAnimations() {
         for (let i = 0; i < SIZE; i++) {
           for (let j = 0; j < SIZE; j++) {
             const el = document.getElementById(i.toString() + j.toString())
-            el.className = ''
-            el.style.removeProperty('--dx')
-            el.style.removeProperty('--dy')
+            el.className = 'cell'
+            el.style.visibility = ''
           }
         }
       }
 
-      function render(state, oldPosition, moveInfo) {
-        // Clear previous animations first
-        clearAnimations()
+      // Pending animation timeout handle — cleared on each new move
+      let animTimer = null
 
-        // Force a reflow so re-adding the same animation class works
-        void document.getElementById('board').offsetHeight
+      function render(state, oldPosition, moveInfo) {
+        // Cancel any pending animation completion from previous move
+        if (animTimer) {
+          clearTimeout(animTimer)
+          animTimer = null
+        }
+
+        clearAnimations()
+        clearGhostTiles()
+
+        // Update all grid cells to their final values
+        for (let i = 0; i < SIZE; i++) {
+          for (let j = 0; j < SIZE; j++) {
+            const el = document.getElementById(i.toString() + j.toString())
+            const val = state.position[i][j]
+            el.textContent = val === 0 ? '' : val
+            el.setAttribute('data-value', val)
+          }
+        }
+
+        // Initial render — no animation needed
+        if (!oldPosition || !moveInfo) return
+
+        const ghosts = []
+        const hiddenCells = []
+        const mergeCells = []
 
         for (let i = 0; i < SIZE; i++) {
           for (let j = 0; j < SIZE; j++) {
-            const id = i.toString() + j.toString()
-            const el = document.getElementById(id)
+            const info = moveInfo[i][j]
             const val = state.position[i][j]
             const oldVal = oldPosition ? oldPosition[i][j] : 0
+            const el = document.getElementById(i.toString() + j.toString())
 
-            el.textContent = val === 0 ? '' : val
-            el.setAttribute('data-value', val)
+            if (info) {
+              const hasMoved = info.dx !== 0 || info.dy !== 0
 
-            // Determine animation from moveInfo
-            if (oldPosition && moveInfo) {
-              const info = moveInfo[i][j]
-              if (info) {
-                // Tile slid here from another position
-                if (info.dx !== 0 || info.dy !== 0) {
-                  el.style.setProperty('--dx', info.dx)
-                  el.style.setProperty('--dy', info.dy)
-                  el.classList.add('anim-slide')
-                }
+              if (hasMoved || info.merged) {
+                // Hide destination cell — ghosts will cover it during animation
+                el.style.visibility = 'hidden'
+                hiddenCells.push(el)
+
                 if (info.merged) {
-                  el.classList.add('anim-merge')
+                  mergeCells.push(el)
                 }
-              } else if (val !== 0 && val !== oldVal) {
-                // New tile from addRandom
-                el.classList.add('anim-pop')
+
+                // Ghost for primary tile: slides from source to destination
+                const displayValue = info.merged ? val / 2 : val
+                const sourceRow = i + info.dy
+                const sourceCol = j + info.dx
+                const ghost = createGhostTile(displayValue, sourceRow, sourceCol)
+                tileContainer.appendChild(ghost)
+                ghosts.push({ el: ghost, destRow: i, destCol: j })
+
+                // Ghost for secondary merge tile
+                if (info.merged) {
+                  const sourceRow2 = i + info.mdy
+                  const sourceCol2 = j + info.mdx
+                  const ghost2 = createGhostTile(displayValue, sourceRow2, sourceCol2)
+                  tileContainer.appendChild(ghost2)
+                  ghosts.push({ el: ghost2, destRow: i, destCol: j })
+                }
               }
+              // else: tile didn't move and didn't merge — stays visible in grid
+            } else if (val !== 0 && val !== oldVal) {
+              // New tile from addRandom — pop in after slide animation completes
+              el.classList.add('anim-pop')
             }
           }
         }
+
+        // Force reflow so ghosts render at source positions first
+        void tileContainer.offsetHeight
+
+        // Animate ghosts to their destinations
+        for (const g of ghosts) {
+          const destPos = getCellPos(g.destRow, g.destCol)
+          g.el.style.transform = 'translate(' + destPos.left + 'px,' + destPos.top + 'px)'
+        }
+
+        // After slide transition completes: remove ghosts, reveal cells, trigger merge animation
+        animTimer = setTimeout(() => {
+          animTimer = null
+          clearGhostTiles()
+
+          for (const el of hiddenCells) {
+            el.style.visibility = ''
+          }
+          // Force reflow before adding merge animation
+          void document.getElementById('board').offsetHeight
+          for (const el of mergeCells) {
+            el.classList.add('anim-merge')
+          }
+        }, ANIM_DURATION)
 
         // Animate score
         const oldScore = parseInt(scoreValue.textContent) || 0
