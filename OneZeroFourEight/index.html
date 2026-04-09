@@ -63,12 +63,6 @@
         ArrowDown: API.down,
       }
 
-      const directionMap = {
-        ArrowLeft: 'left',
-        ArrowRight: 'right',
-        ArrowUp: 'up',
-        ArrowDown: 'down',
-      }
 
       window.state = {
         position: API.init(SIZE),
@@ -100,11 +94,13 @@
           for (let j = 0; j < SIZE; j++) {
             const el = document.getElementById(i.toString() + j.toString())
             el.className = ''
+            el.style.removeProperty('--dx')
+            el.style.removeProperty('--dy')
           }
         }
       }
 
-      function render(state, oldPosition, direction) {
+      function render(state, oldPosition, moveInfo) {
         // Clear previous animations first
         clearAnimations()
 
@@ -121,17 +117,22 @@
             el.textContent = val === 0 ? '' : val
             el.setAttribute('data-value', val)
 
-            // Determine animation
-            if (oldPosition && direction) {
-              if (oldVal === 0 && val !== 0) {
-                // New tile appeared here
-                el.classList.add('anim-pop')
-              } else if (val !== 0 && oldVal !== 0 && val > oldVal) {
-                // Merge happened — value increased
-                el.classList.add('anim-merge')
+            // Determine animation from moveInfo
+            if (oldPosition && moveInfo) {
+              const info = moveInfo[i][j]
+              if (info) {
+                // Tile slid here from another position
+                if (info.dx !== 0 || info.dy !== 0) {
+                  el.style.setProperty('--dx', info.dx)
+                  el.style.setProperty('--dy', info.dy)
+                  el.classList.add('anim-slide')
+                }
+                if (info.merged) {
+                  el.classList.add('anim-merge')
+                }
               } else if (val !== 0 && val !== oldVal) {
-                // Tile slid in from somewhere
-                el.classList.add('anim-slide-' + direction)
+                // New tile from addRandom
+                el.classList.add('anim-pop')
               }
             }
           }
@@ -163,10 +164,9 @@
       function processMove(handler, eventKey) {
         if (handler) {
           const oldPosition = copyMatrix(window.state.position)
-          const [newState, points] = handler(window.state.position)
+          const [newState, points, moveInfo] = handler(window.state.position)
           window.state.score += points
           const sameMatrixes = API.sameMatrixes(newState, window.state.position)
-          const direction = directionMap[eventKey]
 
           if (emptyCoordinates(newState)?.length === 0 && sameMatrixes) {
             checkEndGame(eventKey, 'ArrowLeft', 'ArrowRight', API.up)
@@ -179,7 +179,7 @@
             window.state.position = res
           }
 
-          render(window.state, oldPosition, direction)
+          render(window.state, oldPosition, moveInfo)
         }
       }
 
